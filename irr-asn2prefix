@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# Copyright (c) 2022 Nagrind <https://github.com/nagrind>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+
+set -euo pipefail
+
+err() { echo "${@}" 1>&2; exit 1; }
+out() { echo "${@}"; exit 0; }
+usage() { err "Usage: $(basename "${0}") [-h <host>] [-p <port>] [-4|-6]" \
+              "<asn>"; }
+
+declare mode=""
+while getopts ":h:p:46" opts; do
+  case "${opts}" in
+    h) host=${OPTARG} ;;
+    p) port=${OPTARG} ;;
+    4) # shellcheck disable=SC2015
+       [[ -z "${mode}" ]] && mode="g" || err "Can not combine -4 with -6" ;;
+    6) # shellcheck disable=SC2015
+       [[ -z "${mode}" ]] && mode="6" || err "Can not combine -6 with -4" ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND-1))
+
+[[ ${#} != 1 ]] && usage
+
+# IRRd style TCP responses
+#
+# For a successful response returning data, the response is:
+#
+#   A<length>
+#   <response content>
+#   C
+#
+# The length is the number of bytes in the response, including the newline
+# immediately after the response content. Different objects are part of one
+# lock of response content, each object separated by a blank line.
+#
+# If the query was valid, but no entries were found, the response is:
+#
+#   C
+#
+# If the query was valid, but the primary key queried for did not exist:
+#
+#   D
+#
+# If the query was invalid:
+#
+#   F <error message>
+#
+# Reference: https://irrd.readthedocs.io/en/stable/users/queries/whois/
+
+result="$(echo "!${mode:-g}${1}" | \
+          nc -- "${host:-whois.radb.net}" "${port:-43}" 2>&1 || :)"
+
+[[ "${result}" == "F "* ]] && err "${result/F /}"
+[[ "${result}" == "D" ]] && err "Primary key does not exist"
+[[ "${result}" == "C" ]] && err "No entries were found"
+
+readarray -t lines <<< "${result}"
+[[ ${#lines[@]} == 3 && "${lines[0]}" == "A"$((${#lines[1]} + 1)) && \
+   "${lines[2]}" == "C" ]] && out "${lines[1]}"
+
+err "${result}"

@@ -1,0 +1,66 @@
+#!/bin/bash
+#
+# Copyright (c) 2022 Nagrind <https://github.com/nagrind>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+
+set -euo pipefail
+shopt -s lastpipe
+
+err() { echo "${@}" 1>&2; exit 1; }
+usage() { err "Usage: $(basename "${0}") [-4|-6] <attribute-name>" \
+              "<inverse-key>"; }
+
+declare mode=""
+while getopts ":46" opts; do
+  case "${opts}" in
+    4) mode+="inetnum," ;;
+    6) mode+="inet6num," ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND-1))
+
+[[ ${#} != 2 ]] && usage
+
+# (Subset of) Query Types supported by the RIPE Database
+#
+# -i, --inverse <attribute-name> <inverse-key>
+#       Perform an inverse query.
+#
+# -K, --primary-keys
+#       Requests that only the primary keys of an object to be returned. The
+#       exceptions are set objects, where the (mp-)members attributes will
+#       also be returned. This flag does not apply to person and role
+#       objects.
+#
+# -T, --select-types (comma separated list of object types with no white space)
+#       Select the types of objects to lookup in the query.
+#
+# Reference: https://apps.db.ripe.net/docs
+#            /14.Tables-of-Query-Types-Supported-by-the-RIPE-Database/
+
+declare -i lines=0
+whois -h whois.ripe.net -- \
+  -T "${mode:-inetnum,inet6num}" -K -i "${1,,}" "${2}" | \
+  gawk -F ': ' '/^inet6?num:/ { print $2 }' | \
+  while IFS=$'\n' read -r line; do
+    lines=$((++lines))
+    # shellcheck disable=SC2015
+    [[ "${line}" == *":"* ]] && echo "${line// /}" || \
+      ipcalc --no-decorate --deaggregate="${line// /}"
+  done
+
+# shellcheck disable=SC2015
+[[ ${lines} == 0 ]] && err "No entries found" || :
