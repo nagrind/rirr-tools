@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022 Nagrind <https://github.com/nagrind>
+# Copyright (c) 2022-2024 Nagrind <https://github.com/nagrind>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -18,7 +18,6 @@
 set -euo pipefail
 
 err() { echo "${@}" 1>&2; exit 1; }
-out() { echo "${@}"; exit 0; }
 usage() { err "Usage: $(basename "${0}") [-h <host>] [-p <port>] [-4|-6]" \
               "<asn>"; }
 
@@ -72,7 +71,6 @@ result="$(echo "!${mode:-g}${1}" | \
 [[ "${result}" == "C" ]] && err "No entries were found"
 
 readarray -t lines <<< "${result}"
+# shellcheck disable=SC2015
 [[ ${#lines[@]} == 3 && "${lines[0]}" == "A"$((${#lines[1]} + 1)) && \
-   "${lines[2]}" == "C" ]] && out "${lines[1]}"
-
-err "${result}"
+   "${lines[2]}" == "C" ]] && echo "${lines[1]}" || err "${result}"
